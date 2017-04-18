@@ -2,7 +2,96 @@
 namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Rych\Random\Random;
+use App\Book;
+
 class PracticeController extends Controller {
+        /**
+      * Lecture 11) Delete example
+      */
+      public function practice11() {
+          $book = Book::find(11);
+          if(!$book) {
+              dump('Did not delete book 11, did not find it.');
+          }
+          else {
+              $book->delete();
+              dump('Deleted book #11');
+          }
+      }
+      /**
+      * Lecture 11) One way to update multiple rows
+      */
+      public function practice10() {
+          # First get a book to update
+          $books = Book::where('author', 'LIKE', '%Scott%')->get();
+          if(!$book) {
+              dump("Book not found, can't update.");
+          }
+          else {
+              foreach($books as $key => $book) {
+                  # Change some properties
+                  $book->title = 'The Really Great Gatsby';
+                  $book->published = '2025';
+                  # Save the changes
+                  $book->save();
+              }
+              dump('Update complete; check the database to confirm the update worked.');
+          }
+      }
+      /**
+      * Lecture 11) Update a single row
+      */
+      public function practice9() {
+          # First get a book to update
+          $book = Book::where('author', 'LIKE', '%Scott%')->get();
+          if(!$book) {
+              dump("Book not found, can't update.");
+          }
+          else {
+              # Change some properties
+              $book->title = 'The Really Great Gatsby';
+              $book->published = '2025';
+              # Save the changes
+              $book->save();
+              dump('Update complete; check the database to confirm the update worked.');
+          }
+      }
+      /**
+      * Lecture 11) Constraint chaining
+      */
+      public function practice8() {
+          $book = new Book();
+          $books = $book->where('title', 'LIKE', '%Harry Potter%')
+          ->orWhere('published', '>=', 1800)
+          ->orderBy('created_at','desc')
+          ->get();
+          dump($books->toArray());
+      }
+
+      /**
+    * Lecture 11) Get all books
+    */
+    public function practice7() {
+        $book = new Book();
+        $books = $book->all();
+        dump($books->toArray());
+    }
+
+
+      /**
+    * Lecture 11) Create a new book
+    */
+    public function practice6() {
+        $newBook = new Book();
+        $newBook->title = "Harry Potter and the Sorcerer's Stone";
+        $newBook->author = 'J.K. Rowling';
+        $newBook->published = 1997;
+        $newBook->cover = 'http://prodimage.images-bn.com/pimages/9780590353427_p0_v1_s484x700.jpg';
+        $newBook->purchase_link = 'http://www.barnesandnoble.com/w/harry-potter-and-the-sorcerers-stone-j-k-rowling/1100036321?ean=9780590353427';
+        $newBook->save();
+        dump($newBook->toArray());
+    }
+
     /**
     *
     */
