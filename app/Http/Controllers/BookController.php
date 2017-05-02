@@ -1,32 +1,77 @@
 <?php
+
 namespace App\Http\Controllers;
+
 use Illuminate\Http\Request;
+use App\Book;
+use App\Author;
+use App\Tag;
+use Session;
+
 class BookController extends Controller
 {
+
     /**
-	* GET
+    * GET
     * /books
-	*/
-    public function index() {
-        return 'View all the books...';
+    */
+    public function index(Request $request) {
+
+        $user = $request->user();
+
+        # Note: We're getting the user from the request, but you can also get it like this:
+        //$user = Auth::user();
+
+        if($user) {
+            # Approach 1)
+            //$books = Book::where('user_id', '=', $user->id)->orderBy('title')->get();
+
+            # Approach 2) Take advantage of Model relationships
+            $books = $user->books()->orderBy('title')->get();
+
+            # Get 3 most recently added books
+            #$newBooks = Book::orderBy('created_at', 'descending')->limit(3)->get(); # Query DB
+            $newBooks = $books->sortByDesc('created_at')->take(3); # Query existing Collection
+
+        }
+        else {
+            $books = [];
+            $newBooks = [];
+        }
+
+
+        return view('books.index')->with([
+            'books' => $books,
+            'newBooks' => $newBooks,
+        ]);
+
     }
+
+
     /**
-	* GET
-    * /books/{title?}
-	*/
-    public function show($title = null) {
+    * GET
+    * /books/{id}
+    */
+    public function show($id) {
+
+        $book = Book::find($id);
+
+        if(!$book) {
+            Session::flash('message', 'The book you requested could not be found.');
+            return redirect('/');
+        }
+
         return view('books.show')->with([
-            'title' => $title,
+            'book' => $book,
         ]);
     }
 
-    # app/Http/Controllers/BookController.php
 
     /**
-	* GET
+    * GET
     * /search
-	*/
-  public function search(Request $request) {
+    */
+    public function search(Request $request) {
 
         # Start with an empty array of search results; books that
         # match our search query will get added to this array
@@ -77,13 +122,23 @@ class BookController extends Controller
             'searchResults' => $searchResults
         ]);
     }
-        /**
+
+
+    /**
     * GET
     * /books/new
     * Display the form to add a new book
     */
     public function createNewBook(Request $request) {
-        return view('books.new');
+
+        $authorsForDropdown = Author::getAuthorsForDropdown();
+
+        $tagsForCheckboxes = Tag::getTagsForCheckboxes();
+
+        return view('books.new')->with([
+            'authorsForDropdown' => $authorsForDropdown,
+            'tagsForCheckboxes' => $tagsForCheckboxes
+        ]);
     }
 
 
@@ -94,16 +149,170 @@ class BookController extends Controller
     */
     public function storeNewBook(Request $request) {
 
-        $title = $request->input('title');
+        # Custom error message
+        $messages = [
+            'author_id.not_in' => 'Author not selected.',
+        ];
 
-        #
-        #
-        # [...Code will eventually go here to actually save this book to a database...]
-        #
-        #
+        $this->validate($request, [
+            'title' => 'required|min:3',
+            'published' => 'required|numeric',
+            'cover' => 'required|url',
+            'purchase_link' => 'required|url',
+            'author_id' => 'not_in:0',
+        ], $messages);
 
-        # Redirect the user to the page to view the book
-        return redirect('/books/'.$title);
+        # Add new book to database
+        $book = new Book();
+        $book->title = $request->title;
+        $book->published = $request->published;
+        $book->cover = $request->cover;
+        $book->purchase_link = $request->purchase_link;
+        $book->author_id = $request->author_id;
+        $book->user_id = $request->user()->id;
+        $book->save();
+
+        # Now handle tags.
+        # Note how the book has to be created (save) first *before* tags can
+        # be added; this is because the tags need a book_id to associate with
+        # and we don't have a book_id until the book is created.
+        $tags = ($request->tags) ?: [];
+        $book->tags()->sync($tags);
+        $book->save();
+
+        Session::flash('message', 'The book '.$request->title.' was added.');
+
+        # Redirect the user to book index
+        return redirect('/books');
     }
 
-  }
+
+    /**
+    * GET
+    * /books/edit/{id}
+    * Show form to edit a book
+    */
+    public function edit($id) {
+
+        $book = Book::with('tags')->find($id);
+
+        if(is_null($book)) {
+            Session::flash('message', 'The book you requested was not found.');
+            return redirect('/books');
+        }
+
+        $authorsForDropdown = Author::getAuthorsForDropdown();
+
+        $tagsForCheckboxes = Tag::getTagsForCheckboxes();
+
+        # Create a simple array of just the tag names for tags associated with this book;
+        # will be used in the view to decide which tags should be checked off
+        $tagsForThisBook = [];
+        foreach($book->tags as $tag) {
+            $tagsForThisBook[] = $tag->name;
+        }
+        # Results in an array like this: $tagsForThisBook => ['novel','fiction','classic'];
+
+        return view('books.edit')->with([
+            'id' => $id,
+            'book' => $book,
+            'authorsForDropdown' => $authorsForDropdown,
+            'tagsForCheckboxes' => $tagsForCheckboxes,
+            'tagsForThisBook' => $tagsForThisBook,
+        ]);
+
+    }
+
+    /**
+    * POST
+    * /books/edit
+    * Process form to save edits to a book
+    */
+    public function saveEdits(Request $request) {
+
+        # Custom error message
+        $messages = [
+            'author_id.not_in' => 'Author not selected.',
+        ];
+
+        $this->validate($request, [
+            'title' => 'required|min:3',
+            'published' => 'required|numeric',
+            'cover' => 'required|url',
+            'purchase_link' => 'required|url',
+            'author_id' => 'not_in:0'
+        ], $messages);
+
+        $book = Book::find($request->id);
+
+        # Edit book in the database
+        $book->title = $request->title;
+        $book->published = $request->published;
+        $book->cover = $request->cover;
+        $book->purchase_link = $request->purchase_link;
+        $book->author_id = $request->author_id;
+
+        # If there were tags selected...
+        if($request->tags) {
+            $tags = $request->tags;
+        }
+        # If there were no tags selected (i.e. no tags in the request)
+        # default to an empty array of tags
+        else {
+            $tags = [];
+        }
+
+        # Above if/else could be condensed down to this: $tags = ($request->tags) ?: [];
+
+        # Sync tags
+        $book->tags()->sync($tags);
+        $book->save();
+
+        Session::flash('message', 'Your changes to '.$book->title.' were saved.');
+        return redirect('/books/edit/'.$request->id);
+
+    }
+
+
+    /**
+    * GET
+    * Page to confirm deletion
+    */
+    public function confirmDeletion($id) {
+
+        # Get the book they're attempting to delete
+        $book = Book::find($id);
+
+        if(!$book) {
+            Session::flash('message', 'Book not found.');
+            return redirect('/books');
+        }
+
+        return view('books.delete')->with('book', $book);
+    }
+
+
+    /**
+    * POST
+    * Actually delete the book
+    */
+    public function delete(Request $request) {
+
+        # Get the book to be deleted
+        $book = Book::find($request->id);
+
+        if(!$book) {
+            Session::flash('message', 'Deletion failed; book not found.');
+            return redirect('/books');
+        }
+
+        $book->tags()->detach();
+
+        $book->delete();
+
+        # Finish
+        Session::flash('message', $book->title.' was deleted.');
+        return redirect('/books');
+    }
+
+}
